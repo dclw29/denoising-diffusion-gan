@@ -129,6 +129,7 @@ def sample_from_model(coefficients, generator, n_time, x_init, T, opt):
 #%%
 def sample_and_test(args):
     torch.manual_seed(42)
+    # LSPR cuda device change here
     device = 'cuda:0'
     
     if args.dataset == 'cifar10':

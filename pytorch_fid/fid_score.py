@@ -98,7 +98,8 @@ class ImagePathDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, i):
         path = self.files[i]
-        img = Image.open(path).convert('RGB')
+        img = Image.open(path).convert('RGB') # has to be RGB because of InceptionV3 model
+        #img = Image.open(path).convert('L')
         if self.transforms is not None:
             img = self.transforms(img)
         return img

@@ -11,15 +11,16 @@ import lmdb
 import os
 import io
 from PIL import Image
-
+import pickle
+import torchvision.transforms as transforms
 
 def num_samples(dataset, train):
     if dataset == 'celeba':
         return 27000 if train else 3000
-    
+    elif dataset == "diffusion_TM":
+        return 21246 if train else 2000 # this number is specific to the number of TM examples we have
     else:
         raise NotImplementedError('dataset %s is unknown' % dataset)
-
 
 class LMDBDataset(data.Dataset):
     def __init__(self, root, name='', train=True, transform=None, is_encoded=False):
@@ -27,7 +28,7 @@ class LMDBDataset(data.Dataset):
         self.name = name
         self.transform = transform
         if self.train:
-            lmdb_path = os.path.join(root, 'train.lmdb')
+            lmdb_path = os.path.join(root)
         else:
             lmdb_path = os.path.join(root, 'validation.lmdb')
         self.data_lmdb = lmdb.open(lmdb_path, readonly=True, max_readers=1,
@@ -37,16 +38,29 @@ class LMDBDataset(data.Dataset):
     def __getitem__(self, index):
         target = [0]
         with self.data_lmdb.begin(write=False, buffers=True) as txn:
-            data = txn.get(str(index).encode())
+
+            # LSPR changes
+            #data = txn.get(str(index).encode())
+            data = txn.get(f"{index:08}".encode())
+
             if self.is_encoded:
                 img = Image.open(io.BytesIO(data))
-                img = img.convert('RGB')
+                img = img.convert('L') # L from RGB to deal with grayscale
             else:
-                img = np.asarray(data, dtype=np.uint8)
+                #### Original ###
+                #img = np.asarray(data, dtype=np.uint8)
                 # assume data is RGB
-                size = int(np.sqrt(len(img) / 3))
-                img = np.reshape(img, (size, size, 3))
-                img = Image.fromarray(img, mode='RGB')
+                #size = int(np.sqrt(len(img) / 3))
+                #img = np.reshape(img, (size, size, 3))
+                #img = Image.fromarray(img, mode='RGB')
+
+                ### LSPR ###
+                lmdb_image = pickle.loads(data)
+                # assume it is grayscale
+                #size = int(np.sqrt(len(img) / 1))
+                #img = np.reshape(img, (size, size, 1))
+                #img = Image.fromarray(img, mode='L')
+                img = lmdb_image.get_image()
 
         if self.transform is not None:
             img = self.transform(img)

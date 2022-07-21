@@ -28,6 +28,23 @@ from torch.multiprocessing import Process
 import torch.distributed as dist
 import shutil
 
+
+# class added by LSPR to avoid caffe usage
+class LMDB_Image:
+    def __init__(self, image):
+        # Dimensions of image for reconstruction - not really necessary
+        # for this dataset, but some datasets may include images of
+        # varying sizes
+        self.channels = image.shape[2]
+        self.size = image.shape[:2]
+
+        self.image = image.tobytes()
+
+    def get_image(self):
+        """ Returns the image as a numpy array. """
+        image = np.frombuffer(self.image, dtype=np.uint8)
+        return image.reshape(*self.size, self.channels)
+
 def copy_source(file, output_dir):
     shutil.copyfile(file, os.path.join(output_dir, os.path.basename(file)))
             
@@ -196,6 +213,7 @@ def train(rank, gpu, args):
     torch.cuda.manual_seed(args.seed + rank)
     torch.cuda.manual_seed_all(args.seed + rank)
     device = torch.device('cuda:{}'.format(gpu))
+    #device = torch.device('cuda:0')
     
     batch_size = args.batch_size
     
@@ -237,7 +255,15 @@ def train(rank, gpu, args):
             ])
         dataset = LMDBDataset(root='/datasets/celeba-lmdb/', name='celeba', train=True, transform=train_transform)
       
-    
+    elif args.dataset == 'diffusion_TM':
+        train_transform = transforms.Compose([
+                transforms.ToPILImage(), # LSPR: must use PIL (output is np.ndarray)
+                transforms.Resize(args.image_size),
+                transforms.ToTensor(),
+                transforms.Normalize((0.5), (0.5)) # for grayscale
+            ])
+        # LSPR change accordingly
+        dataset = LMDBDataset(root='/data/lrudden/diffusion_TM/dataset/train_lmdb', name='diffusion_TM', train=True, transform=train_transform, is_encoded=False)
     
     train_sampler = torch.utils.data.distributed.DistributedSampler(dataset,
                                                                     num_replicas=args.world_size,
@@ -290,7 +316,7 @@ def train(rank, gpu, args):
         if not os.path.exists(exp_path):
             os.makedirs(exp_path)
             copy_source(__file__, exp_path)
-            shutil.copytree('score_sde/models', os.path.join(exp_path, 'score_sde/models'))
+            shutil.copytree('/data/lrudden/denoising-diffusion-gan/score_sde/models', os.path.join(exp_path, 'score_sde/models'))
     
     
     coeff = Diffusion_Coefficients(args, device)
@@ -463,7 +489,7 @@ def train(rank, gpu, args):
 def init_processes(rank, size, fn, args):
     """ Initialize the distributed environment. """
     os.environ['MASTER_ADDR'] = args.master_address
-    os.environ['MASTER_PORT'] = '6020'
+    os.environ['MASTER_PORT'] = '6020' # LSPR this is the one you can change incase of port/address errors
     torch.cuda.set_device(args.local_rank)
     gpu = args.local_rank
     dist.init_process_group(backend='nccl', init_method='env://', rank=rank, world_size=size)
@@ -475,6 +501,7 @@ def cleanup():
     dist.destroy_process_group()    
 #%%
 if __name__ == '__main__':
+    #torch.multiprocessing.set_start_method('spawn') # for multiprocessing (turn off for one gpu)
     parser = argparse.ArgumentParser('ddgan parameters')
     parser.add_argument('--seed', type=int, default=1024,
                         help='seed used for initialization')
