@@ -10,7 +10,7 @@ import argparse
 import torch
 import numpy as np
 
-import os
+import os, sys
 
 import torch.nn as nn
 import torch.nn.functional as F
@@ -28,22 +28,22 @@ from torch.multiprocessing import Process
 import torch.distributed as dist
 import shutil
 
-
 # class added by LSPR to avoid caffe usage
 class LMDB_Image:
-    def __init__(self, image):
+    def __init__(self, image, label=None):
         # Dimensions of image for reconstruction - not really necessary
         # for this dataset, but some datasets may include images of
         # varying sizes
         self.channels = image.shape[2]
         self.size = image.shape[:2]
-
+        if label is not None:
+            self.label = label
         self.image = image.tobytes()
 
     def get_image(self):
         """ Returns the image as a numpy array. """
         image = np.frombuffer(self.image, dtype=np.uint8)
-        return image.reshape(*self.size, self.channels)
+        return image.reshape(*self.size, self.channels), self.label
 
 def copy_source(file, output_dir):
     shutil.copyfile(file, os.path.join(output_dir, os.path.basename(file)))
@@ -139,6 +139,7 @@ def q_sample_pairs(coeff, x_start, t):
                    extract(coeff.sigmas, t+1, x_start.shape) * noise
     
     return x_t, x_t_plus_one
+
 #%% posterior sampling
 class Posterior_Coefficients():
     def __init__(self, args, device):
@@ -164,6 +165,7 @@ class Posterior_Coefficients():
         
         self.posterior_log_variance_clipped = torch.log(self.posterior_variance.clamp(min=1e-20))
         
+
 def sample_posterior(coefficients, x_0,x_t, t):
     
     def q_posterior(x_0, x_t, t):
@@ -189,7 +191,7 @@ def sample_posterior(coefficients, x_0,x_t, t):
     
     return sample_x_pos
 
-def sample_from_model(coefficients, generator, n_time, x_init, T, opt):
+def sample_from_model(coefficients, generator, n_time, x_init, T, labels, opt):
     x = x_init
     with torch.no_grad():
         for i in reversed(range(n_time)):
@@ -197,7 +199,7 @@ def sample_from_model(coefficients, generator, n_time, x_init, T, opt):
           
             t_time = t
             latent_z = torch.randn(x.size(0), opt.nz, device=x.device)
-            x_0 = generator(x, t_time, latent_z)
+            x_0 = generator(x, t_time, latent_z, label=labels.squeeze(-1))
             x_new = sample_posterior(coefficients, x_0, x, t)
             x = x_new.detach()
         
@@ -255,6 +257,15 @@ def train(rank, gpu, args):
             ])
         dataset = LMDBDataset(root='/datasets/celeba-lmdb/', name='celeba', train=True, transform=train_transform)
       
+    elif args.dataset == 'mnist':
+        train_transform = transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.Resize(args.image_size),
+                transforms.ToTensor(),
+                transforms.Normalize((0.5), (0.5))
+            ])
+        dataset = LMDBDataset(root='/scratch/izar/dclw/diffusion_mnist/train_lmdb', name='mnist', train=True, transform=train_transform)        
+
     elif args.dataset == 'diffusion_TM':
         train_transform = transforms.Compose([
                 transforms.ToPILImage(), # LSPR: must use PIL (output is np.ndarray)
@@ -263,7 +274,7 @@ def train(rank, gpu, args):
                 transforms.Normalize((0.5), (0.5)) # for grayscale
             ])
         # LSPR change accordingly
-        dataset = LMDBDataset(root='/data/lrudden/diffusion_TM/dataset/train_lmdb', name='diffusion_TM', train=True, transform=train_transform, is_encoded=False)
+        dataset = LMDBDataset(root='/scratch/izar/dclw/diffusion_TM/dataset/train_lmdb', name='diffusion_TM', train=True, transform=train_transform, is_encoded=False)
     
     train_sampler = torch.utils.data.distributed.DistributedSampler(dataset,
                                                                     num_replicas=args.world_size,
@@ -279,14 +290,16 @@ def train(rank, gpu, args):
     netG = NCSNpp(args).to(device)
     
 
-    if args.dataset == 'cifar10' or args.dataset == 'stackmnist':    
-        netD = Discriminator_small(nc = 2*args.num_channels, ngf = args.ngf,
+    if args.dataset == 'cifar10' or args.dataset == 'stackmnist' or args.dataset == 'mnist':    
+        # LSPR # nc changes to 3 to reflect 3 channels (two conditioning ones) instead of 2 * args.num_channels (num channels for RGB) 
+        netD = Discriminator_small(nc = 3*args.num_channels, ngf = args.ngf,
                                t_emb_dim = args.t_emb_dim,
-                               act=nn.LeakyReLU(0.2)).to(device)
+                               act=nn.LeakyReLU(0.2), num_classes=args.num_classes, imsize=args.image_size).to(device)
     else:
-        netD = Discriminator_large(nc = 2*args.num_channels, ngf = args.ngf, 
+        # LSPR # nc changes to 3 to reflect 3 channels (two conditioning ones) instead of 2 * args.num_channels (num channels for RGB) 
+        netD = Discriminator_large(nc = 3*args.num_channels, ngf = args.ngf, 
                                    t_emb_dim = args.t_emb_dim,
-                                   act=nn.LeakyReLU(0.2)).to(device)
+                                   act=nn.LeakyReLU(0.2), num_classes=args.num_classes, imsize=args.image_size).to(device)
     
     broadcast_params(netG.parameters())
     broadcast_params(netD.parameters())
@@ -316,7 +329,7 @@ def train(rank, gpu, args):
         if not os.path.exists(exp_path):
             os.makedirs(exp_path)
             copy_source(__file__, exp_path)
-            shutil.copytree('/data/lrudden/denoising-diffusion-gan/score_sde/models', os.path.join(exp_path, 'score_sde/models'))
+            shutil.copytree('/home/dclw/denoising-diffusion-gan/score_sde/models', os.path.join(exp_path, 'score_sde/models'))
     
     
     coeff = Diffusion_Coefficients(args, device)
@@ -343,15 +356,19 @@ def train(rank, gpu, args):
     else:
         global_step, epoch, init_epoch = 0, 0, 0
     
-    
+    print("Beginning run") 
     for epoch in range(init_epoch, args.num_epoch+1):
         train_sampler.set_epoch(epoch)
        
         for iteration, (x, y) in enumerate(data_loader):
+            # x are images, y are the labels
             for p in netD.parameters():  
                 p.requires_grad = True  
         
-            
+            # reassign labels - 1 is good structure
+            #labels = torch.ones(len(y[0]), dtype=int, device=device).unsqueeze(-1)
+            labels = y.unsqueeze(-1).type(torch.int)
+ 
             netD.zero_grad()
             
             #sample from p(x_0)
@@ -365,14 +382,14 @@ def train(rank, gpu, args):
             
     
             # train with real
-            D_real = netD(x_t, t, x_tp1.detach()).view(-1)
+            D_real = netD(x_t, t, x_tp1.detach(), labels).view(-1)
             
             errD_real = F.softplus(-D_real)
             errD_real = errD_real.mean()
             
             errD_real.backward(retain_graph=True)
             
-            
+
             if args.lazy_reg is None:
                 grad_real = torch.autograd.grad(
                             outputs=D_real.sum(), inputs=x_t, create_graph=True
@@ -397,47 +414,40 @@ def train(rank, gpu, args):
                     grad_penalty = args.r1_gamma / 2 * grad_penalty
                     grad_penalty.backward()
 
+
             # train with fake
             latent_z = torch.randn(batch_size, nz, device=device)
+
+            x_0_predict = netG(x_tp1.detach(), t, latent_z, label=labels.squeeze(-1))
             
-         
-            x_0_predict = netG(x_tp1.detach(), t, latent_z)
             x_pos_sample = sample_posterior(pos_coeff, x_0_predict, x_tp1, t)
             
-            output = netD(x_pos_sample, t, x_tp1.detach()).view(-1)
+            output = netD(x_pos_sample, t, x_tp1.detach(), labels).view(-1)
                 
-            
             errD_fake = F.softplus(output)
             errD_fake = errD_fake.mean()
             errD_fake.backward()
-    
             
             errD = errD_real + errD_fake
             # Update D
             optimizerD.step()
             
-        
             #update G
             for p in netD.parameters():
                 p.requires_grad = False
-            netG.zero_grad()
             
+            netG.zero_grad()
             
             t = torch.randint(0, args.num_timesteps, (real_data.size(0),), device=device)
             
-            
             x_t, x_tp1 = q_sample_pairs(coeff, real_data, t)
                 
-            
             latent_z = torch.randn(batch_size, nz,device=device)
-            
-            
-                
-           
-            x_0_predict = netG(x_tp1.detach(), t, latent_z)
+
+            x_0_predict = netG(x_tp1.detach(), t, latent_z, label=labels.squeeze(-1))
             x_pos_sample = sample_posterior(pos_coeff, x_0_predict, x_tp1, t)
             
-            output = netD(x_pos_sample, t, x_tp1.detach()).view(-1)
+            output = netD(x_pos_sample, t, x_tp1.detach(), labels).view(-1)
                
             
             errG = F.softplus(-output)
@@ -463,7 +473,8 @@ def train(rank, gpu, args):
                 torchvision.utils.save_image(x_pos_sample, os.path.join(exp_path, 'xpos_epoch_{}.png'.format(epoch)), normalize=True)
             
             x_t_1 = torch.randn_like(real_data)
-            fake_sample = sample_from_model(pos_coeff, netG, args.num_timesteps, x_t_1, T, args)
+            labels = torch.ones(len(y[0]), dtype=int, device=device).unsqueeze(-1) # figure out how to test this randomly
+            fake_sample = sample_from_model(pos_coeff, netG, args.num_timesteps, x_t_1, T, labels, args)
             torchvision.utils.save_image(fake_sample, os.path.join(exp_path, 'sample_discrete_epoch_{}.png'.format(epoch)), normalize=True)
             
             if args.save_content:
@@ -489,7 +500,7 @@ def train(rank, gpu, args):
 def init_processes(rank, size, fn, args):
     """ Initialize the distributed environment. """
     os.environ['MASTER_ADDR'] = args.master_address
-    os.environ['MASTER_PORT'] = '6020' # LSPR this is the one you can change incase of port/address errors
+    os.environ['MASTER_PORT'] = '8021' # LSPR this is the one you can change incase of port/address errors
     torch.cuda.set_device(args.local_rank)
     gpu = args.local_rank
     dist.init_process_group(backend='nccl', init_method='env://', rank=rank, world_size=size)
@@ -501,7 +512,7 @@ def cleanup():
     dist.destroy_process_group()    
 #%%
 if __name__ == '__main__':
-    #torch.multiprocessing.set_start_method('spawn') # for multiprocessing (turn off for one gpu)
+    torch.multiprocessing.set_start_method('spawn') # for multiprocessing (turn off for one gpu)
     parser = argparse.ArgumentParser('ddgan parameters')
     parser.add_argument('--seed', type=int, default=1024,
                         help='seed used for initialization')
@@ -603,6 +614,10 @@ if __name__ == '__main__':
                         help='address for master')
 
    
+    # LSPR
+    parser.add_argument('--num_classes', type=int, default=2,
+                        help='The number of labelled classes for conditional training')   
+
     args = parser.parse_args()
     args.world_size = args.num_proc_node * args.num_process_per_node
     size = args.num_process_per_node

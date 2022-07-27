@@ -96,11 +96,14 @@ class DownConvBlock(nn.Module):
 class Discriminator_small(nn.Module):
   """A time-dependent discriminator for small images (CIFAR10, StackMNIST)."""
 
-  def __init__(self, nc = 3, ngf = 64, t_emb_dim = 128, act=nn.LeakyReLU(0.2)):
+  def __init__(self, nc = 1, ngf = 64, t_emb_dim = 128, act=nn.LeakyReLU(0.2), num_classes=10, imsize=32):
     super().__init__()
+
+    self.num_classes = num_classes
+    self.imsize = imsize
+
     # Gaussian random feature embedding layer for time
-    self.act = act
-    
+    self.act = act 
     
     self.t_embed = TimestepEmbedding(
         embedding_dim=t_emb_dim,
@@ -108,11 +111,9 @@ class Discriminator_small(nn.Module):
         output_dim=t_emb_dim,
         act=act,
         )
-    
-    
      
     # Encoding layers where the resolution decreases
-    self.start_conv = conv2d(nc,ngf*2,1, padding=0)
+    self.start_conv = conv2d(nc, ngf*2, 1, padding=0)
     self.conv1 = DownConvBlock(ngf*2, ngf*2, t_emb_dim = t_emb_dim,act=act)
     
     self.conv2 = DownConvBlock(ngf*2, ngf*4,  t_emb_dim = t_emb_dim, downsample=True,act=act)
@@ -130,12 +131,15 @@ class Discriminator_small(nn.Module):
     self.stddev_group = 4
     self.stddev_feat = 1
     
+    # for the label - needs to be uncommented when you are ready
+    self.label_embedding = nn.Embedding(self.num_classes, embedding_dim=self.imsize**2)
         
-  def forward(self, x, t, x_t):
+  def forward(self, x, t, x_t, label):
     t_embed = self.act(self.t_embed(t))  
-    
+    label_embed = self.label_embedding(label).view(*x.size()) 
   
-    input_x = torch.cat((x, x_t), dim = 1)
+    #input_x = torch.cat((x, x_t), dim = 1)
+    input_x = torch.cat((x, x_t, label_embed), dim = 1)
     
     h0 = self.start_conv(input_x)
     h1 = self.conv1(h0,t_embed)    
@@ -168,21 +172,30 @@ class Discriminator_small(nn.Module):
 
 
 class Discriminator_large(nn.Module):
-  """A time-dependent discriminator for large images (CelebA, LSUN)."""
+  """  
+  A time-dependent discriminator for large images (CelebA, LSUN).
+  LSPR: Adapt to be a conditional GAN also - see if that works (inject conditional label at each diffusion stage)
+  Somewhat naiive approach.
+  """
 
-  def __init__(self, nc = 1, ngf = 32, t_emb_dim = 128, act=nn.LeakyReLU(0.2)):
+  def __init__(self, nc = 1, ngf = 32, t_emb_dim = 128, act=nn.LeakyReLU(0.2), num_classes=2, imsize=256):
+    # 2 classes, good membrane protiens (based on contacts), and bad ones - but still with good rotamers - in shape needs to have an extra dimension 
     super().__init__()
+
+    # LSPR param
+    self.num_classes = num_classes
+    self.imsize = imsize
+
     # Gaussian random feature embedding layer for time
     self.act = act
-    
     self.t_embed = TimestepEmbedding(
             embedding_dim=t_emb_dim,
             hidden_dim=t_emb_dim,
             output_dim=t_emb_dim,
             act=act,
         )
-      
-    self.start_conv = conv2d(nc,ngf*2,1, padding=0)
+
+    self.start_conv = conv2d(nc, ngf*2, 1, padding=0) 
     self.conv1 = DownConvBlock(ngf*2, ngf*4, t_emb_dim = t_emb_dim, downsample = True, act=act)
     
     self.conv2 = DownConvBlock(ngf*4, ngf*8,  t_emb_dim = t_emb_dim, downsample=True,act=act)
@@ -201,11 +214,18 @@ class Discriminator_large(nn.Module):
     self.stddev_group = 4
     self.stddev_feat = 1
     
-        
-  def forward(self, x, t, x_t):
+    # for the label - needs to be uncommented when you are ready
+    self.label_embedding = nn.Embedding(self.num_classes, embedding_dim=self.imsize**2)
+
+  def forward(self, x, t, x_t, label):
+    # label input should be size (BATCH X CAT VALUE)
     t_embed = self.act(self.t_embed(t))  
-    
-    input_x = torch.cat((x, x_t), dim = 1)
+
+    label_embed = self.label_embedding(label).view(*x.size())
+
+    # cat label here in addition to conditioning on x_t, condition on label
+    input_x = torch.cat((x, x_t, label_embed), dim = 1)
+    #input_x = torch.cat((x, x_t), dim = 1)
     
     h = self.start_conv(input_x)
     h = self.conv1(h,t_embed)    
@@ -215,8 +235,6 @@ class Discriminator_large(nn.Module):
     h = self.conv3(h,t_embed)
     h = self.conv4(h,t_embed)
     h = self.conv5(h,t_embed)
-   
-    
     out = self.conv6(h,t_embed)
     
     batch, channel, height, width = out.shape

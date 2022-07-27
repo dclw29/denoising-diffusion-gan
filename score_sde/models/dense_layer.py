@@ -74,6 +74,7 @@ def conv2d(in_planes, out_planes, kernel_size=(3, 3), stride=1, dilation=1, padd
            init_scale=1.):
     conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation,
                      bias=bias, padding_mode=padding_mode)
+
     variance_scaling_init_(conv.weight, scale=init_scale)
     if bias:
         nn.init.zeros_(conv.bias)

@@ -19,6 +19,8 @@ def num_samples(dataset, train):
         return 27000 if train else 3000
     elif dataset == "diffusion_TM":
         return 21246 if train else 2000 # this number is specific to the number of TM examples we have
+    elif dataset == "mnist":
+        return 60000 if train else 4000
     else:
         raise NotImplementedError('dataset %s is unknown' % dataset)
 
@@ -36,7 +38,7 @@ class LMDBDataset(data.Dataset):
         self.is_encoded = is_encoded
 
     def __getitem__(self, index):
-        target = [0]
+
         with self.data_lmdb.begin(write=False, buffers=True) as txn:
 
             # LSPR changes
@@ -60,12 +62,12 @@ class LMDBDataset(data.Dataset):
                 #size = int(np.sqrt(len(img) / 1))
                 #img = np.reshape(img, (size, size, 1))
                 #img = Image.fromarray(img, mode='L')
-                img = lmdb_image.get_image()
+                img, label = lmdb_image.get_image()
 
         if self.transform is not None:
             img = self.transform(img)
 
-        return img, target
+        return img, label
 
     def __len__(self):
         return num_samples(self.name, self.train)
