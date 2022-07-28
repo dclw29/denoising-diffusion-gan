@@ -1,4 +1,6 @@
-# Official PyTorch implementation of "Tackling the Generative Learning Trilemma with Denoising Diffusion GANs" [(ICLR 2022 Spotlight Paper)](https://arxiv.org/abs/2112.07804) #
+## This has been modified by Lucas Rudden (EPFL) to be able to take conditional inputs. This has been verified to work with the MNIST dataset ##
+
+# UnOfficial Conditional PyTorch implementation of "Tackling the Generative Learning Trilemma with Denoising Diffusion GANs" [(ICLR 2022 Spotlight Paper)](https://arxiv.org/abs/2112.07804) #
 
 <div align="center">
   <a href="https://xavierxiao.github.io/" target="_blank">Zhisheng&nbsp;Xiao</a> &emsp; <b>&middot;</b> &emsp;
@@ -108,6 +110,21 @@ year={2022}
 }
 ```
 
+If you use the conditional model
+
+```
+@misc{Rudden2022,
+  author = {Rudden, Lucas S.P.},
+  title = {Conditional Implementation of a Denoising Diffusion GAN},
+  year = {2022},
+  publisher = {GitHub},
+  journal = {GitHub repository},
+  howpublished = {\url{https://github.com/dclw29/denoising-diffusion-gan}},
+  commit = {1c83ab58a412f68f4fc558f655db0be0a1dddd1c}
+}
+```
+
 ## Contributors ##
 Denoising Diffusion GAN was built primarily by [Zhisheng Xiao](https://xavierxiao.github.io/) during a summer 
 internship at NVIDIA research.
+LSPR implemented the conditional model, which relies on a basic conditional Discriminator, and embedding / conditioning the labels in the generator at each generator stage in the diffusive model similar to the time conditioning
