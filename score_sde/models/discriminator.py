@@ -131,8 +131,8 @@ class Discriminator_small(nn.Module):
     self.stddev_group = 4
     self.stddev_feat = 1
     
-    # for the label - needs to be uncommented when you are ready
-    self.label_embedding = nn.Embedding(self.num_classes, embedding_dim=self.imsize**2)
+    # for the label 
+    self.label_embedding = nn.Embedding(self.num_classes, embedding_dim=self.imsize**2) #LSPR
         
   def forward(self, x, t, x_t, label):
     t_embed = self.act(self.t_embed(t))  
@@ -179,7 +179,6 @@ class Discriminator_large(nn.Module):
   """
 
   def __init__(self, nc = 1, ngf = 32, t_emb_dim = 128, act=nn.LeakyReLU(0.2), num_classes=2, imsize=256):
-    # 2 classes, good membrane protiens (based on contacts), and bad ones - but still with good rotamers - in shape needs to have an extra dimension 
     super().__init__()
 
     # LSPR param
@@ -214,8 +213,8 @@ class Discriminator_large(nn.Module):
     self.stddev_group = 4
     self.stddev_feat = 1
     
-    # for the label - needs to be uncommented when you are ready
-    self.label_embedding = nn.Embedding(self.num_classes, embedding_dim=self.imsize**2)
+    # for the label
+    self.label_embedding = nn.Embedding(self.num_classes, embedding_dim=self.imsize**2) #LSPR
 
   def forward(self, x, t, x_t, label):
     # label input should be size (BATCH X CAT VALUE)

@@ -275,14 +275,14 @@ def train(rank, gpu, args):
             ])
         # LSPR change accordingly
         dataset = LMDBDataset(root='/scratch/izar/dclw/diffusion_TM/dataset/train_lmdb', name='diffusion_TM', train=True, transform=train_transform, is_encoded=False)
-    
+
     train_sampler = torch.utils.data.distributed.DistributedSampler(dataset,
                                                                     num_replicas=args.world_size,
                                                                     rank=rank)
     data_loader = torch.utils.data.DataLoader(dataset,
                                                batch_size=batch_size,
                                                shuffle=False,
-                                               num_workers=4,
+                                               num_workers=0,
                                                pin_memory=True,
                                                sampler=train_sampler,
                                                drop_last = True)
@@ -355,8 +355,9 @@ def train(rank, gpu, args):
                   .format(checkpoint['epoch']))
     else:
         global_step, epoch, init_epoch = 0, 0, 0
-    
-    print("Beginning run") 
+   
+    if rank == 0: 
+        print("Beginning run") 
     for epoch in range(init_epoch, args.num_epoch+1):
         train_sampler.set_epoch(epoch)
        
@@ -473,9 +474,12 @@ def train(rank, gpu, args):
                 torchvision.utils.save_image(x_pos_sample, os.path.join(exp_path, 'xpos_epoch_{}.png'.format(epoch)), normalize=True)
             
             x_t_1 = torch.randn_like(real_data)
-            labels = torch.ones(len(y[0]), dtype=int, device=device).unsqueeze(-1) # figure out how to test this randomly
+            #labels = torch.ones(len(y[0]), dtype=int, device=device).unsqueeze(-1) # figure out how to test this randomly
+            labels = torch.randint(0, 10, (x_t_1.size()[0],), device=device).unsqueeze(-1) # save this labels to measure the model performance
             fake_sample = sample_from_model(pos_coeff, netG, args.num_timesteps, x_t_1, T, labels, args)
             torchvision.utils.save_image(fake_sample, os.path.join(exp_path, 'sample_discrete_epoch_{}.png'.format(epoch)), normalize=True)
+            labels_np = labels.squeeze(-1).detach().cpu().numpy()
+            np.save(os.path.join(exp_path, 'labels_discrete_epoch_{}.npy'.format(epoch)), labels_np)
             
             if args.save_content:
                 if epoch % args.save_content_every == 0:
@@ -513,6 +517,7 @@ def cleanup():
 #%%
 if __name__ == '__main__':
     torch.multiprocessing.set_start_method('spawn') # for multiprocessing (turn off for one gpu)
+
     parser = argparse.ArgumentParser('ddgan parameters')
     parser.add_argument('--seed', type=int, default=1024,
                         help='seed used for initialization')
@@ -629,7 +634,7 @@ if __name__ == '__main__':
             global_rank = rank + args.node_rank * args.num_process_per_node
             global_size = args.num_proc_node * args.num_process_per_node
             args.global_rank = global_rank
-            print('Node rank %d, local proc %d, global proc %d' % (args.node_rank, rank, global_rank))
+            print('Node rank %d, local proc %d, global proc %d, global size %d' % (args.node_rank, rank, global_rank, global_size))
             p = Process(target=init_processes, args=(global_rank, global_size, train, args))
             p.start()
             processes.append(p)

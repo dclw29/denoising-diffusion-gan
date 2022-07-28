@@ -120,7 +120,7 @@ class NCSNpp(nn.Module):
       nn.init.zeros_(modules[-1].bias)
       nn.init.zeros_(module_label_embedding[-1].bias)
       modules.append(nn.Linear(nf * 4, nf * 4))
-      module_label_embedding.append(nn.Linear(nf * 4, nf * 4))
+      module_label_embedding.append(nn.Linear(nf * 4, nf * 4)) #LSPR embedding for conditions
       modules[-1].weight.data = default_initializer()(modules[-1].weight.shape)
       module_label_embedding[-1].weight.data = default_initializer()(modules[-1].weight.shape)
       nn.init.zeros_(modules[-1].bias)
@@ -195,56 +195,41 @@ class NCSNpp(nn.Module):
       for i_block in range(num_res_blocks):
         out_ch = nf * ch_mult[i_level]
         modules.append(ResnetBlock(in_ch=in_ch, out_ch=out_ch))
-        #print("Num ",1)
-        #print(len(modules)-1)
         in_ch = out_ch
-        module_label_embedding.append(ResnetBlock(in_ch=in_ch, out_ch=out_ch))
+        module_label_embedding.append(ResnetBlock(in_ch=in_ch, out_ch=out_ch)) #LSPR
 
         if all_resolutions[i_level] in attn_resolutions:
           modules.append(AttnBlock(channels=in_ch))
-          #print("Num ",2)
-          #print(len(modules)-1)
         hs_c.append(in_ch)
 
       if i_level != num_resolutions - 1:
         if resblock_type == 'ddpm':
           modules.append(Downsample(in_ch=in_ch))
-          module_label_embedding.append(ResnetBlock(in_ch=in_ch, out_ch=out_ch))
-          #print("Num ",3)
-          #print(len(modules)-1)          
+          module_label_embedding.append(ResnetBlock(in_ch=in_ch, out_ch=out_ch))  #LSPR
         else:
           modules.append(ResnetBlock(down=True, in_ch=in_ch))
-          module_label_embedding.append(ResnetBlock(in_ch=in_ch, out_ch=out_ch)) # can't change dimension here without upsampling
-          #print("Num ",3)
-          #print(len(modules)-1)          
+          module_label_embedding.append(ResnetBlock(in_ch=in_ch, out_ch=out_ch)) # #LSPR - can't change dimension here without upsampling    
 
         if progressive_input == 'input_skip':
-          modules.append(combiner(dim1=input_pyramid_ch, dim2=in_ch))
-          #print("Num ",4)
-          #print(len(modules)-1)          
+          modules.append(combiner(dim1=input_pyramid_ch, dim2=in_ch))      
           if combine_method == 'cat':
             in_ch *= 2
 
         elif progressive_input == 'residual':
-          modules.append(pyramid_downsample(in_ch=input_pyramid_ch, out_ch=in_ch))
-          #print("Num ",5)
-          #print(len(modules)-1)          
+          modules.append(pyramid_downsample(in_ch=input_pyramid_ch, out_ch=in_ch))     
           input_pyramid_ch = in_ch
 
         hs_c.append(in_ch)
 
     in_ch = hs_c[-1]
     modules.append(ResnetBlock(in_ch=in_ch))
-    module_label_embedding.append(ResnetBlock(in_ch=in_ch))
-    #print("Num ",6)
-    #print(len(modules)-1)
+    module_label_embedding.append(ResnetBlock(in_ch=in_ch)) #LSPR
+
     modules.append(AttnBlock(channels=in_ch))
-    #print("Num ",7)
-    #print(len(modules)-1)
+
     modules.append(ResnetBlock(in_ch=in_ch))
-    module_label_embedding.append(ResnetBlock(in_ch=in_ch))
-    #print("Num ",8)
-    #print(len(modules)-1)
+    module_label_embedding.append(ResnetBlock(in_ch=in_ch))  #LSPR
+
 
     pyramid_ch = 0
     # Upsampling block
@@ -255,51 +240,33 @@ class NCSNpp(nn.Module):
                                    out_ch=out_ch))
         in_ch = out_ch                           
         module_label_embedding.append(ResnetBlock(in_ch=in_ch,
-                                   out_ch=out_ch))                           
-        #print("Num ",9)
-        #print(len(modules)-1)
+                                   out_ch=out_ch))       # LSPR                    
 
       if all_resolutions[i_level] in attn_resolutions:
         modules.append(AttnBlock(channels=in_ch))
-        #print("Num ",10)
-        #print(len(modules)-1)
 
       if progressive != 'none':
         if i_level == num_resolutions - 1:
           if progressive == 'output_skip':
             modules.append(nn.GroupNorm(num_groups=min(in_ch // 4, 32),
                                         num_channels=in_ch, eps=1e-6))
-            #print("Num ",11)
-            #print(len(modules)-1)
-            modules.append(conv3x3(in_ch, channels, init_scale=init_scale))
-            #print("Num ",12)
-            #print(len(modules)-1)            
+            modules.append(conv3x3(in_ch, channels, init_scale=init_scale))     
             pyramid_ch = channels
           elif progressive == 'residual':
             modules.append(nn.GroupNorm(num_groups=min(in_ch // 4, 32),
-                                        num_channels=in_ch, eps=1e-6))
-            #print("Num ",13)
-            #print(len(modules)-1)                                        
+                                        num_channels=in_ch, eps=1e-6))                                   
             modules.append(conv3x3(in_ch, in_ch, bias=True))
-            #print("Num ",14)
-            #print(len(modules)-1)            
             pyramid_ch = in_ch
           else:
             raise ValueError(f'{progressive} is not a valid name.')
         else:
           if progressive == 'output_skip':
             modules.append(nn.GroupNorm(num_groups=min(in_ch // 4, 32),
-                                        num_channels=in_ch, eps=1e-6))
-            #print("Num ",15)
-            #print(len(modules)-1)                                        
+                                        num_channels=in_ch, eps=1e-6))                                    
             modules.append(conv3x3(in_ch, channels, bias=True, init_scale=init_scale))
-            #print("Num ",16)
-            #print(len(modules)-1)            
             pyramid_ch = channels
           elif progressive == 'residual':
             modules.append(pyramid_upsample(in_ch=pyramid_ch, out_ch=in_ch))
-            #print("Num ",17)
-            #print(len(modules)-1)            
             pyramid_ch = in_ch
           else:
             raise ValueError(f'{progressive} is not a valid name')
@@ -307,24 +274,20 @@ class NCSNpp(nn.Module):
       if i_level != 0:
         if resblock_type == 'ddpm':
           modules.append(Upsample(in_ch=in_ch))
-          #print("Num ",18)
-          #print(len(modules)-1)          
+
         else:
           modules.append(ResnetBlock(in_ch=in_ch, up=True))
-          module_label_embedding.append(ResnetBlock(in_ch=in_ch))
-          #print("Num ",19)
-          #print(len(modules)-1)          
+          module_label_embedding.append(ResnetBlock(in_ch=in_ch)) # LSPR
+      
 
     assert not hs_c
 
     if progressive != 'output_skip':
       modules.append(nn.GroupNorm(num_groups=min(in_ch // 4, 32),
                                   num_channels=in_ch, eps=1e-6))
-      #print("Num ",20)
-      #print(len(modules)-1)   
+  
       modules.append(conv3x3(in_ch, channels, init_scale=init_scale))
-      #print("Num ",21)
-      #print(len(modules)-1)  
+ 
 
     self.all_modules = nn.ModuleList(modules)
     self.label_modules = nn.ModuleList(module_label_embedding)
@@ -336,9 +299,6 @@ class NCSNpp(nn.Module):
         mapping_layers.append(dense(z_emb_dim, z_emb_dim))
         mapping_layers.append(self.act)
     self.z_transform = nn.Sequential(*mapping_layers)
-    
-    # naiive label embedding LSPR
-    #self.label_embedding = nn.Embedding(self.num_classes, embedding_dim=64) # try same as temb
 
   def forward(self, x, time_cond, z, label):
 
@@ -395,16 +355,9 @@ class NCSNpp(nn.Module):
     for i_level in range(self.num_resolutions):
       # Residual blocks for this resolution
       for i_block in range(self.num_res_blocks):
-        #print("#####")
-        #print("Marker 1")
-        #print(hs[-1].size())
-        #print(m_idx)
-        #print(modules[m_idx])
         h = modules[m_idx](hs[-1], temb, zemb)
-        #print(h.size())
+
         h = label_modules[ml_idx](h, lemb, zemb) # LSPR naiive recombine with additional condition
-        #print(h.size())
-        # just recombine here?
         m_idx += 1
         ml_idx += 1
         if h.shape[-1] in self.attn_resolutions:
@@ -417,16 +370,10 @@ class NCSNpp(nn.Module):
           h = modules[m_idx](hs[-1])
           m_idx += 1
         else:        
-          #print("#####")
-          #print("Marker 2")
-          #print(hs[-1].size())
-          #print(m_idx)
-          #print(modules[m_idx])
           h = modules[m_idx](hs[-1], temb, zemb)
-          #print(h.size())
-          # downsample
+
           h = label_modules[ml_idx](h, lemb, zemb) # LSPR
-          #print(h.size())
+
           m_idx += 1
           ml_idx += 1
 
@@ -447,27 +394,18 @@ class NCSNpp(nn.Module):
         hs.append(h)
 
     h = hs[-1]
-    #print("#####")
-    #print("Marker 3")
-    #print(h.size())
-    #print(m_idx)
-    #print(modules[m_idx])
+
     h = modules[m_idx](h, temb, zemb)
-    #print(h.size())
+
     h = label_modules[ml_idx](h, lemb, zemb) # LSPR
     m_idx += 1
     ml_idx += 1
     h = modules[m_idx](h)
     m_idx += 1
-    #print("#####")
-    #print("Marker 4")
-    #print(h.size())
-    #print(m_idx)
-    #print(modules[m_idx])
+
     h = modules[m_idx](h, temb, zemb)
-    h = label_modules[ml_idx](h, lemb, zemb)
-    #print(h.size())
-    #h = modules[m_idx_resbigan_same](h, temb, label_embed) # LSPR
+    h = label_modules[ml_idx](h, lemb, zemb) # LSPR
+
     m_idx += 1
     ml_idx += 1
 
@@ -476,15 +414,9 @@ class NCSNpp(nn.Module):
     # Upsampling block
     for i_level in reversed(range(self.num_resolutions)):
       for i_block in range(self.num_res_blocks + 1):
-        #print("#####")
-        #print("Marker 5")
-        #o = torch.cat([h, hs.pop()], dim=1)
-        #print(o.size())
-        #print("o")
-        #print(m_idx)
-        #print(modules[m_idx])
+
         h = modules[m_idx](torch.cat([h, hs.pop()], dim=1), temb, zemb)
-        #print(h.size())
+
         h = label_modules[ml_idx](h, lemb, zemb) # LSPR
         m_idx += 1
         ml_idx += 1
@@ -531,15 +463,11 @@ class NCSNpp(nn.Module):
           h = modules[m_idx](h)
           m_idx += 1
         else:
-          #print("#####")
-          #print("Marker 6")
-          #print(h.size())
-          #print(m_idx)
-          #print(modules[m_idx])
+
           h = modules[m_idx](h, temb, zemb)
-          #print(h.size())
+
           h = label_modules[ml_idx](h, lemb, zemb) # LSPR
-          #print(h.size())
+
           m_idx += 1
           ml_idx += 1
 
