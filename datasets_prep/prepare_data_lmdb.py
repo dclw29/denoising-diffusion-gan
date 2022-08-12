@@ -12,23 +12,25 @@ from typing import Generator, Any
 from PIL import Image
 import pickle
 import matplotlib.pyplot as plt
+import idx2numpy
 
 class LMDB_Image:
-    def __init__(self, image):
+    def __init__(self, image, label=None):
         # Dimensions of image for reconstruction - not really necessary
         # for this dataset, but some datasets may include images of
         # varying sizes
         self.channels = image.shape[2]
         self.size = image.shape[:2]
-
+        if label is not None:
+            self.label = label
         self.image = image.tobytes()
 
     def get_image(self):
         """ Returns the image as a numpy array. """
         image = np.frombuffer(self.image, dtype=np.uint8)
-        return image.reshape(*self.size, self.channels)
+        return image.reshape(*self.size, self.channels), self.label
 
-def store_many_lmdb(images, lmdb_dir="/data/lrudden/diffusion_TM/dataset/train_lmdb"):
+def store_many_lmdb(images, labels, lmdb_dir="/data/lrudden/diffusion_TM/dataset/train_lmdb"):
     """ Stores an array of images to LMDB.
         https://realpython.com/storing-images-in-python/#storing-to-lmdb
         Parameters:
@@ -47,7 +49,7 @@ def store_many_lmdb(images, lmdb_dir="/data/lrudden/diffusion_TM/dataset/train_l
     with env.begin(write=True) as txn:
         for i in range(num_images):
             # All key-value pairs need to be Strings
-            value = LMDB_Image(images[i])
+            value = LMDB_Image(images[i], labels[i])
             key = f"{i:08}"
             txn.put(key.encode("ascii"), pickle.dumps(value))
     env.close()
@@ -84,18 +86,24 @@ def read_images(folder: str) -> np.array:
     images = []
     for image_file_name in os.listdir(directory):
         filename = os.fsdecode(image_file_name)
-        if filename.endswith(".jpg"):
+        if filename.endswith(".png"):
             images.append(np.array(Image.open(filename)))
     return np.asarray(images).astype(np.uint8)[:,:,:,np.newaxis] # add on the channel dimension at the end (grayscale)
 
-if __name__ == "__main__":
-    folder="/data/lrudden/diffusion_catsdogs/train/"
-    arr_cats = read_images(folder + "cats") 
-    arr_dogs = read_images(folder + "dogs")
-    #N = 
-    store_many_lmdb(arr)
+def read_labels(filename: str) -> np.array:
+    return np.load(filename) # load the prestored labels from a numpy array
 
-    # creates an lmdb in /data/lrudden/diffusion_TM/dataset/train_lmdb/data.mdb - check
-    #read_single_lmdb(20) 
-    #plt.imshow(im)
-    #plt.show()
+if __name__ == "__main__":
+    folder="/data/lrudden/diffusion_TM/dataset"
+
+    # MNIST EXAMPLE #
+    #filename_images="train-images-idx3-ubyte"
+    #filename_labels="train-labels-idx1-ubyte"
+    #arr = idx2numpy.convert_from_file(filename_images)[:,:,:,np.newaxis] # add on the channel dimension at the end (grayscale)
+    #labels = idx2numpy.convert_from_file(filename_labels)    # read the files
+    #store_many_lmdb(arr, labels)
+
+    # Diffuse TM database - must be run from inside correct folder
+    arr = read_images(folder)
+    labels = read_labels(folder + "/labels.npy")
+    store_many_lmdb(arr, labels)

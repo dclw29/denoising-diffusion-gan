@@ -87,7 +87,7 @@ class Posterior_Coefficients():
         
         self.posterior_log_variance_clipped = torch.log(self.posterior_variance.clamp(min=1e-20))
         
-def sample_posterior(coefficients, x_0,x_t, t):
+def sample_posterior(coefficients, x_0,x_t, t, noise):
     
     def q_posterior(x_0, x_t, t):
         mean = (
@@ -99,29 +99,30 @@ def sample_posterior(coefficients, x_0,x_t, t):
         return mean, var, log_var_clipped
     
   
-    def p_sample(x_0, x_t, t):
+    def p_sample(x_0, x_t, t, noise):
         mean, _, log_var = q_posterior(x_0, x_t, t)
         
-        noise = torch.randn_like(x_t)
-        
+        #noise = torch.randn_like(x_t)
         nonzero_mask = (1 - (t == 0).type(torch.float32))
 
         return mean + nonzero_mask[:,None,None,None] * torch.exp(0.5 * log_var) * noise
             
-    sample_x_pos = p_sample(x_0, x_t, t)
+    sample_x_pos = p_sample(x_0, x_t, t, noise)
     
     return sample_x_pos
 
-def sample_from_model(coefficients, generator, n_time, x_init, T, opt):
-    x = x_init
+def sample_from_model(coefficients, generator, n_time, hyper_noise, T, latent_z, labels, opt):
+    x = hyper_noise[:args.batch_size]
+    noise = hyper_noise[args.batch_size:]
+    #x = x_init
     with torch.no_grad():
         for i in reversed(range(n_time)):
             t = torch.full((x.size(0),), i, dtype=torch.int64).to(x.device)
             
             t_time = t
-            latent_z = torch.randn(x.size(0), opt.nz, device=x.device)#.to(x.device)
-            x_0 = generator(x, t_time, latent_z)
-            x_new = sample_posterior(coefficients, x_0, x, t)
+            #latent_z = torch.randn(x.size(0), opt.nz, device=x.device)#.to(x.device)
+            x_0 = generator(x, t_time, latent_z, label=labels.squeeze(-1))
+            x_new = sample_posterior(coefficients, x_0, x, t, noise)
             x = x_new.detach()
         
     return x
@@ -129,8 +130,7 @@ def sample_from_model(coefficients, generator, n_time, x_init, T, opt):
 #%%
 def sample_and_test(args):
     torch.manual_seed(42)
-    # LSPR cuda device change here
-    device = 'cuda:0'
+    device = 'cuda:0' # needs to be zero when trained on multiple GPU?
     
     if args.dataset == 'cifar10':
         real_img_dir = 'pytorch_fid/cifar10_train_stat.npy'
@@ -158,7 +158,7 @@ def sample_and_test(args):
     
     pos_coeff = Posterior_Coefficients(args, device)
         
-    iters_needed = 50000 //args.batch_size
+    iters_needed = args.fid_samples //args.batch_size
     
     save_dir = "./generated_samples/{}".format(args.dataset)
     
@@ -167,15 +167,27 @@ def sample_and_test(args):
     
     if args.compute_fid:
         for i in range(iters_needed):
+            # use a hypersphere to determine each starting latent space parameter
+            # entry points are:
+            # 1) x_t sampling as entry to sample from model
+            # 2) latent_z sample in sample_from_model
+            # 3) noise in p_sample of sample_posterior
+            # batch_size * 2 for the x_t and noise
+            hyper_noise = torch.randn(args.batch_size * 2, args.num_channels, args.image_size, args.image_size).to(device)
+            latent_z = torch.randn(args.batch_size, args.nz).to(device)
+            # control latent space here
+
             with torch.no_grad():
-                x_t_1 = torch.randn(args.batch_size, args.num_channels,args.image_size, args.image_size).to(device)
-                fake_sample = sample_from_model(pos_coeff, netG, args.num_timesteps, x_t_1,T,  args)
+                #x_t_1 = torch.randn(args.batch_size, args.num_channels,args.image_size, args.image_size).to(device)
+                x_t_1 = hyper_noise[:args.batch_size]
+                labels = torch.ones(x_t_1.size()[0], device=device).unsqueeze(-1)
+                fake_sample = sample_from_model(pos_coeff, netG, args.num_timesteps, hyper_noise, T, latent_z, labels, args)
                 
                 fake_sample = to_range_0_1(fake_sample)
                 for j, x in enumerate(fake_sample):
                     index = i * args.batch_size + j 
-                    torchvision.utils.save_image(x, './generated_samples/{}/{}.jpg'.format(args.dataset, index))
-                print('generating batch ', i)
+                    torchvision.utils.save_image(x, './generated_samples/{}/{}.png'.format(args.dataset, index))
+                #print('generating batch ', i)
         
         paths = [save_dir, real_img_dir]
     
@@ -184,9 +196,10 @@ def sample_and_test(args):
         print('FID = {}'.format(fid))
     else:
         x_t_1 = torch.randn(args.batch_size, args.num_channels,args.image_size, args.image_size).to(device)
-        fake_sample = sample_from_model(pos_coeff, netG, args.num_timesteps, x_t_1,T,  args)
+        labels = torch.ones(x_t_1.size()[0], device=device).unsqueeze(-1)
+        fake_sample = sample_from_model(pos_coeff, netG, args.num_timesteps, x_t_1, T, labels, args)
         fake_sample = to_range_0_1(fake_sample)
-        torchvision.utils.save_image(fake_sample, './samples_{}.jpg'.format(args.dataset))
+        torchvision.utils.save_image(fake_sample, './samples_{}.png'.format(args.dataset))
 
     
     
@@ -264,9 +277,11 @@ if __name__ == '__main__':
     parser.add_argument('--t_emb_dim', type=int, default=256)
     parser.add_argument('--batch_size', type=int, default=200, help='sample generating batch size')
         
-
-
-
+    # LSPR
+    parser.add_argument('--num_classes', type=int, default=2,
+                        help='The number of labelled classes for conditional training')
+    parser.add_argument('--fid_samples', type=int, default=50000,
+                        help='Number of generated samples when runnning FID. Ideally should match number of training samples')
    
     args = parser.parse_args()
     

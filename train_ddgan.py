@@ -361,6 +361,13 @@ def train(rank, gpu, args):
     for epoch in range(init_epoch, args.num_epoch+1):
         train_sampler.set_epoch(epoch)
        
+        # use a hypersphere to determine each starting latent space parameter
+        # entry points are:
+        # 1) x_t sampling as entry to sample from model
+        # 2) latent_z sample in sample_from_model
+        # 3) noise in p_sample of sample_posterior
+        hyper_noise = torch.randn()
+
         for iteration, (x, y) in enumerate(data_loader):
             # x are images, y are the labels
             for p in netD.parameters():  
