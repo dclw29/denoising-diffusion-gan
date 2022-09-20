@@ -75,26 +75,32 @@ def read_single_lmdb(image_id, lmdb_dir="/data/lrudden/diffusion_TM/dataset/trai
         # Remember it's a CIFAR_Image object that is loaded
         lmdb_image = pickle.loads(data)
         # Retrieve the relevant bits
-        image = lmdb_image.get_image()
+        image, label = lmdb_image.get_image()
 
     env.close()
-    return image
+    return image, label
 
 def read_images(folder: str) -> np.array:
-    directory = os.fsencode(folder)
+    #png_count = 356480
+    png_count = 10760
 
+    #images = np.array(Image.open(folder + "/img_0000.png"))[None, :]
     images = []
-    for image_file_name in os.listdir(directory):
-        filename = os.fsdecode(image_file_name)
-        if filename.endswith(".png"):
-            images.append(np.array(Image.open(filename)))
-    return np.asarray(images).astype(np.uint8)[:,:,:,np.newaxis] # add on the channel dimension at the end (RGB)
+    for cnt in range(png_count):
+        if cnt %100 == 0:
+            print("Loading %.2f %"%(float(cnt)*100/png_count))
+        #images = np.concatenate((images, np.array(Image.open(folder + "/img_%04d.png"%(cnt)))[None, :]))
+        helix_data = np.array(Image.open(folder + "/img_%04d.png"%(cnt)))
+        contact_data = np.array(Image.open(folder + "/img_dist_%04d.png"%(cnt)))[:,:,np.newaxis]
+        images.append(np.concatenate((helix_data, contact_data), axis=2))
+    return np.asarray(images).astype(np.uint8) # add on the channel dimension at the end (grayscale)
 
 def read_labels(filename: str) -> np.array:
     return np.load(filename) # load the prestored labels from a numpy array
 
 if __name__ == "__main__":
-    folder="/data/lrudden/diffusion_TM/dataset"
+    #folder="/scratch/izar/dclw/PDB_archive/IMAGES"
+    folder="/data/lrudden/diffusion_TM/4_CHANNEL/dataset"
 
     # MNIST EXAMPLE #
     #filename_images="train-images-idx3-ubyte"
@@ -103,7 +109,7 @@ if __name__ == "__main__":
     #labels = idx2numpy.convert_from_file(filename_labels)    # read the files
     #store_many_lmdb(arr, labels)
 
-    # Diffuse TM database - must be run from inside correct folder
+    # Diffuse TM database
     arr = read_images(folder)
     labels = read_labels(folder + "/labels.npy")
-    store_many_lmdb(arr, labels)
+    store_many_lmdb(arr, labels, folder + "/train_lmdb")

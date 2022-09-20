@@ -131,8 +131,8 @@ class Discriminator_small(nn.Module):
     self.stddev_group = 4
     self.stddev_feat = 1
     
-    # for the label - needs to be uncommented when you are ready
-    self.label_embedding = nn.Embedding(self.num_classes, embedding_dim=self.imsize**2)
+    # for the label 
+    self.label_embedding = nn.Embedding(self.num_classes, embedding_dim=self.imsize**2) #LSPR
         
   def forward(self, x, t, x_t, label):
     t_embed = self.act(self.t_embed(t))  
@@ -179,7 +179,6 @@ class Discriminator_large(nn.Module):
   """
 
   def __init__(self, nc = 1, ngf = 32, t_emb_dim = 128, act=nn.LeakyReLU(0.2), num_classes=2, imsize=256):
-    # 2 classes, good membrane protiens (based on contacts), and bad ones - but still with good rotamers - in shape needs to have an extra dimension 
     super().__init__()
 
     # LSPR param
@@ -214,22 +213,19 @@ class Discriminator_large(nn.Module):
     self.stddev_group = 4
     self.stddev_feat = 1
     
-    # is it necessary to cat onto each channel, is it not enought to cat one label embedding onto the overall image input?
-    # 20/09/22 Try with just one cat labelling on the disciminator
-    # for the label - needs to be uncommented when you are ready
-    self.label_embedding = nn.Embedding(self.num_classes, embedding_dim=self.imsize**2) # for grayscale
-    #self.label_embedding = nn.Embedding(self.num_classes, embedding_dim=self.imsize**2 * 3) # for colour
+    # for the label
+    self.label_embedding = nn.Embedding(self.num_classes, embedding_dim=self.imsize**2) #LSPR
 
   def forward(self, x, t, x_t, label):
     # label input should be size (BATCH X CAT VALUE)
     t_embed = self.act(self.t_embed(t))  
-    #label_embed = self.label_embedding(label).view(*x.size())
-    label_embed = self.label_embedding(label).view(torch.Size([x.size(dim=0), 1, x.size(dim=2), x.size(dim=3)]))
+
+    label_embed = self.label_embedding(label).view(*x.size())
 
     # cat label here in addition to conditioning on x_t, condition on label
     input_x = torch.cat((x, x_t, label_embed), dim = 1)
     #input_x = torch.cat((x, x_t), dim = 1)
- 
+    
     h = self.start_conv(input_x)
     h = self.conv1(h,t_embed)    
    

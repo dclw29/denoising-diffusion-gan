@@ -18,7 +18,7 @@ def num_samples(dataset, train):
     if dataset == 'celeba':
         return 27000 if train else 3000
     elif dataset == "diffusion_TM":
-        return 21246 if train else 2000 # this number is specific to the number of TM examples we have
+        return 42492 if train else 2000 # this number is specific to the number of TM examples we have
     elif dataset == "mnist":
         return 60000 if train else 4000
     else:
@@ -47,7 +47,8 @@ class LMDBDataset(data.Dataset):
 
             if self.is_encoded:
                 img = Image.open(io.BytesIO(data))
-                img = img.convert('L') # L from RGB to deal with grayscale
+                #img = img.convert('L') # L from RGB to deal with grayscale
+                img = img.convert('RGB')
             else:
                 #### Original ###
                 #img = np.asarray(data, dtype=np.uint8)
@@ -63,6 +64,7 @@ class LMDBDataset(data.Dataset):
                 #img = np.reshape(img, (size, size, 1))
                 #img = Image.fromarray(img, mode='L')
                 img, label = lmdb_image.get_image()
+                print(np.shape(img))
 
         if self.transform is not None:
             img = self.transform(img)
