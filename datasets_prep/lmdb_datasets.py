@@ -64,7 +64,6 @@ class LMDBDataset(data.Dataset):
                 #img = np.reshape(img, (size, size, 1))
                 #img = Image.fromarray(img, mode='L')
                 img, label = lmdb_image.get_image()
-                print(np.shape(img))
 
         if self.transform is not None:
             img = self.transform(img)

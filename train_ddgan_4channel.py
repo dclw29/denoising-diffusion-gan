@@ -274,7 +274,7 @@ def train(rank, gpu, args):
                 transforms.Normalize((0.5, 0.5, 0.5, 0.5), (0.5, 0.5, 0.5, 0.5)) 
             ])
         # LSPR change accordingly
-        dataset = LMDBDataset(root='/data/lrudden/diffusion_TM/4_CHANNEL/dataset/train_lmdb', name='diffusion_TM', train=True, transform=train_transform, is_encoded=False)
+        dataset = LMDBDataset(root="/data/lrudden/diffusion_TM/conditioned_colour/4_CHANNEL/dataset/train_lmdb", name='diffusion_TM', train=True, transform=train_transform, is_encoded=False)
     train_sampler = torch.utils.data.distributed.DistributedSampler(dataset,
                                                                     num_replicas=args.world_size,
                                                                     rank=rank)
@@ -475,7 +475,8 @@ def train(rank, gpu, args):
             
             x_t_1 = torch.randn_like(real_data)
             #labels = torch.randint(0, 10, (x_t_1.size()[0],), device=device).unsqueeze(-1) # save this labels to measure the model performance
-            labels = torch.ones(x_t_1.size()[0], device=device).unsqueeze(-1)
+            #labels = torch.ones(x_t_1.size()[0], device=device).unsqueeze(-1)
+            labels = torch.round(torch.rand(x_t_1.size()[0], device=device)).unsqueeze(-1) # 0 or 1 randomly
             fake_sample = sample_from_model(pos_coeff, netG, args.num_timesteps, x_t_1, T, labels, args)
             torchvision.utils.save_image(fake_sample, os.path.join(exp_path, 'sample_discrete_epoch_{}.png'.format(epoch)), normalize=True)
             labels_np = labels.squeeze(-1).detach().cpu().numpy()

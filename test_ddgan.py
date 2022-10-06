@@ -166,6 +166,7 @@ def sample_and_test(args):
         os.makedirs(save_dir)
     
     if args.compute_fid:
+        all_labels = torch.tensor([]).to(device)
         for i in range(iters_needed):
             # use a hypersphere to determine each starting latent space parameter
             # entry points are:
@@ -176,11 +177,12 @@ def sample_and_test(args):
             hyper_noise = torch.randn(args.batch_size * 2, args.num_channels, args.image_size, args.image_size).to(device)
             latent_z = torch.randn(args.batch_size, args.nz).to(device)
             # control latent space here
-
+            
             with torch.no_grad():
                 #x_t_1 = torch.randn(args.batch_size, args.num_channels,args.image_size, args.image_size).to(device)
                 x_t_1 = hyper_noise[:args.batch_size]
-                labels = torch.ones(x_t_1.size()[0], device=device).unsqueeze(-1)
+                #labels = torch.ones(x_t_1.size()[0], device=device).unsqueeze(-1)
+                labels = torch.round(torch.rand(x_t_1.size()[0], device=device)).unsqueeze(-1) # 0 or 1 randomly 
                 fake_sample = sample_from_model(pos_coeff, netG, args.num_timesteps, hyper_noise, T, latent_z, labels, args)
                 
                 fake_sample = to_range_0_1(fake_sample)
@@ -189,6 +191,8 @@ def sample_and_test(args):
                     torchvision.utils.save_image(x, './generated_samples/{}/{}.png'.format(args.dataset, index))
                 #print('generating batch ', i)
         
+            all_labels = torch.cat((all_labels, labels.squeeze()))
+            np.save("generated_samples/{}/labels.npy".format(args.dataset), all_labels.cpu().numpy())
         paths = [save_dir, real_img_dir]
     
         kwargs = {'batch_size': 100, 'device': device, 'dims': 2048}
